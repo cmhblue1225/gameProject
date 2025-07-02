@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyberpunk FPS - Advanced</title>
+    <link rel="icon" href="data:,">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #0a0a0f 0%, #1a0a1f 50%, #2a0a2f 100%);
+            font-family: 'Orbitron', 'Courier New', monospace;
+            overflow: hidden;
+            cursor: none;
+        }
+        
+        #gameCanvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 100;
+        }
+        
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 20px;
+            height: 20px;
+            border: 2px solid #00ffff;
+            border-radius: 50%;
+            box-shadow: 0 0 15px #00ffff, inset 0 0 15px #00ffff;
+            display: none;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+            50% { transform: translate(-50%, -50%) scale(1.1); opacity: 0.8; }
+        }
+        
+        #hud {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            color: #00ffff;
+            font-size: 18px;
+            text-shadow: 0 0 10px #00ffff;
+            display: none;
+        }
+        
+        .hud-item {
+            margin: 8px 0;
+            padding: 5px 10px;
+            background: rgba(0, 255, 255, 0.1);
+            border-left: 3px solid #00ffff;
+        }
+        
+        #menu {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(45deg, rgba(0, 0, 0, 0.95), rgba(26, 10, 31, 0.95));
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #00ffff;
+            pointer-events: all;
+        }
+        
+        #menu h1 {
+            font-size: 4rem;
+            font-weight: 900;
+            margin-bottom: 50px;
+            text-shadow: 0 0 30px #ff00ff, 0 0 60px #ff00ff;
+            animation: glow 3s ease-in-out infinite alternate;
+        }
+        
+        @keyframes glow {
+            from { text-shadow: 0 0 30px #ff00ff, 0 0 60px #ff00ff; }
+            to { text-shadow: 0 0 40px #ff00ff, 0 0 80px #ff00ff, 0 0 120px #ff00ff; }
+        }
+        
+        .menu-button {
+            background: linear-gradient(45deg, #003366, #006699);
+            border: 2px solid #00ffff;
+            color: #00ffff;
+            padding: 15px 40px;
+            margin: 15px;
+            cursor: pointer;
+            font-family: 'Orbitron', monospace;
+            font-size: 18px;
+            font-weight: 700;
+            text-transform: uppercase;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .menu-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 255, 255, 0.2), transparent);
+            transition: left 0.5s;
+        }
+        
+        .menu-button:hover {
+            background: linear-gradient(45deg, #006699, #0099cc);
+            box-shadow: 0 0 30px #00ffff;
+            transform: scale(1.05);
+        }
+        
+        .menu-button:hover::before {
+            left: 100%;
+        }
+        
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #00ffff;
+            font-size: 24px;
+            text-align: center;
+            display: none;
+        }
+        
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(0, 255, 255, 0.3);
+            border-top: 3px solid #00ffff;
+            border-radius: 50%;
+            margin: 20px auto;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        #minimap {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            width: 200px;
+            height: 200px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 2px solid #00ffff;
+            border-radius: 10px;
+            display: none;
+        }
+        
+        .damage-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle, transparent 0%, rgba(255, 0, 0, 0.3) 100%);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            z-index: 50;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="ui">
+        <div id="crosshair"></div>
+        <div id="hud">
+            <div class="hud-item">HP: <span id="health">100</span></div>
+            <div class="hud-item">AMMO: <span id="ammo">30/90</span></div>
+            <div class="hud-item">WEAPON: <span id="weapon">PISTOL</span></div>
+            <div class="hud-item">SCORE: <span id="score">0</span></div>
+        </div>
+        <div id="minimap"></div>
+        <div class="damage-overlay" id="damageOverlay"></div>
+    </div>
+    
+    <div id="menu">
+        <h1>CYBERPUNK FPS</h1>
+        <button class="menu-button" id="startGame">게임 시작</button>
+        <button class="menu-button" id="settings">설정</button>
+        <button class="menu-button" id="credits">크레딧</button>
+    </div>
+    
+    <div id="loading">
+        <div>게임을 로딩 중...</div>
+        <div class="loading-spinner"></div>
+    </div>
+    
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
