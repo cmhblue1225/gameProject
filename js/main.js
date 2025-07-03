@@ -290,14 +290,14 @@ class CyberpunkFPS {
     }
     
     startEnemySpawning() {
-        this.enemySpawnInterval = setInterval(() => {
+        this.enemySpawnInterval = setInterval(async () => {
             if (this.gameState === 'playing' && this.enemies.size < 5) {
-                this.spawnEnemy();
+                await this.spawnEnemy();
             }
         }, 3000);
     }
     
-    spawnEnemy() {
+    async spawnEnemy() {
         const enemyTypes = ['basic', 'fast', 'heavy'];
         const weights = [0.6, 0.3, 0.1]; // 기본, 빠름, 중장갑 비율
         
@@ -313,35 +313,57 @@ class CyberpunkFPS {
         }
         
         const enemyId = `enemy_${Date.now()}_${Math.random()}`;
-        const enemy = new Enemy(enemyId, selectedType);
         
-        // 플레이어 주변에 스폰 (적당한 거리)
-        const spawnRadius = 40 + Math.random() * 30;
-        const angle = Math.random() * Math.PI * 2;
-        const playerPos = this.player.position;
-        
-        enemy.position.set(
-            playerPos.x + Math.cos(angle) * spawnRadius,
-            1, // 바닥에 가깝게 스폰
-            playerPos.z + Math.sin(angle) * spawnRadius
-        );
-        
-        // 물리 바디 위치도 설정
-        enemy.body.position.set(
-            enemy.position.x,
-            1, // 바닥에 가깝게
-            enemy.position.z
-        );
-        
-        // 타겟 설정
-        enemy.setTarget(this.player);
-        
-        // 씬에 추가
-        this.enemies.set(enemyId, enemy);
-        this.gameEngine.scene.add(enemy.mesh);
-        this.gameEngine.world.addBody(enemy.body);
-        
-        console.log(`${selectedType} 타입 적 스폰:`, enemyId);
+        try {
+            const enemy = new Enemy(enemyId, selectedType);
+            
+            // Enemy 초기화가 완료될 때까지 대기
+            // Enemy의 init()이 완료되면 mesh와 body가 준비됨
+            
+            // 플레이어 주변에 스폰 (적당한 거리)
+            const spawnRadius = 40 + Math.random() * 30;
+            const angle = Math.random() * Math.PI * 2;
+            const playerPos = this.player.position;
+            
+            // FBX 모델에 맞게 스폰 높이 조정
+            const spawnHeight = 30 * enemy.stats.scale; // FBX 모델 높이에 맞춤
+            
+            enemy.position.set(
+                playerPos.x + Math.cos(angle) * spawnRadius,
+                spawnHeight, // FBX 모델에 맞게 조정
+                playerPos.z + Math.sin(angle) * spawnRadius
+            );
+            
+            // 물리 바디 위치도 설정 (Enemy의 init이 완료된 후)
+            setTimeout(() => {
+                if (enemy.body) {
+                    enemy.body.position.set(
+                        enemy.position.x,
+                        spawnHeight,
+                        enemy.position.z
+                    );
+                }
+            }, 100); // 짧은 딜레이로 init 완료 보장
+            
+            // 타겟 설정
+            enemy.setTarget(this.player);
+            
+            // 카메라 참조 설정 (빌보드 효과를 위해)
+            enemy.setCamera(this.gameEngine.camera);
+            
+            // 씬에 추가 (mesh가 준비되면)
+            setTimeout(() => {
+                if (enemy.mesh && enemy.body) {
+                    this.enemies.set(enemyId, enemy);
+                    this.gameEngine.scene.add(enemy.mesh);
+                    this.gameEngine.world.addBody(enemy.body);
+                    console.log(`${selectedType} 타입 적 스폰 완료:`, enemyId);
+                }
+            }, 200); // FBX 로딩을 위한 적절한 딜레이
+            
+        } catch (error) {
+            console.error('적 스폰 실패:', error);
+        }
     }
     
     startGameLoop() {

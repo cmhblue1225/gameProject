@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 
 class Enemy {
     constructor(id, type = 'basic') {
@@ -25,14 +26,27 @@ class Enemy {
         this.mesh = null;
         this.body = null;
         this.healthBar = null;
+        this.fbxModel = null;
+        this.mixer = null;
+        this.animations = {
+            walking: null,
+            running: null,
+            dancing: null
+        };
+        this.currentAnimation = null;
+        
+        // 충돌 감지를 위한 실제 모델 중심 위치
+        this.modelCenter = new THREE.Vector3();
+        
+        // 카메라 참조 (빌보드 효과를 위해)
+        this.camera = null;
         
         // AI 경로 찾기
         this.currentPath = [];
         this.pathIndex = 0;
         this.lastPathUpdate = 0;
         
-        this.createModel();
-        this.createPhysicsBody();
+        this.init();
     }
     
     getTypeStats() {
@@ -40,49 +54,95 @@ class Enemy {
             basic: {
                 maxHealth: 75,
                 damage: 25,
-                speed: 20, // 더 감소
+                speed: 20,
                 attackRange: 8,
                 attackCooldown: 2000,
                 color: 0xff4444,
-                scale: 1.0,
-                emissive: 0x440000
+                scale: 0.03, // FBX 모델에 맞게 스케일 조정
+                emissive: 0x440000,
+                animationType: 'walking'
             },
             fast: {
                 maxHealth: 50,
                 damage: 20,
-                speed: 22, // 훨씬 더 감소 (35 → 22)
+                speed: 22,
                 attackRange: 6,
                 attackCooldown: 1500,
                 color: 0x44ff44,
-                scale: 0.8,
-                emissive: 0x004400
+                scale: 0.025, // 더 작게
+                emissive: 0x004400,
+                animationType: 'running'
             },
             heavy: {
                 maxHealth: 150,
                 damage: 40,
-                speed: 12, // 더 감소
+                speed: 12,
                 attackRange: 10,
                 attackCooldown: 3000,
                 color: 0xff8800,
-                scale: 1.3,
-                emissive: 0x442200
+                scale: 0.035, // 더 크게
+                emissive: 0x442200,
+                animationType: 'dancing'
             }
         };
         
         return stats[this.type] || stats.basic;
     }
     
-    createModel() {
-        const group = new THREE.Group();
+    async init() {
+        await this.createModel();
+        this.createPhysicsBody();
+    }
+    
+    async loadFBXModel() {
+        const loader = new FBXLoader();
         
-        // 메인 바디 (적당한 크기)
-        const bodyGeometry = new THREE.CylinderGeometry(
-            this.stats.scale * 0.8,
-            this.stats.scale * 0.8,
-            this.stats.scale * 3,
-            8
-        );
+        // 타입별로 다른 애니메이션 사용
+        let fbxPath;
+        switch (this.stats.animationType) {
+            case 'walking':
+                fbxPath = './biped/Animation_Walking_frame_rate_60.fbx';
+                break;
+            case 'running':
+                fbxPath = './biped/Animation_Running_frame_rate_60.fbx';
+                break;
+            case 'dancing':
+                fbxPath = './biped/Animation_Boom_Dance_frame_rate_60.fbx';
+                break;
+            default:
+                fbxPath = './biped/Animation_Walking_frame_rate_60.fbx';
+        }
         
+        return new Promise((resolve, reject) => {
+            loader.load(
+                fbxPath,
+                (fbx) => {
+                    this.fbxModel = fbx;
+                    
+                    // 애니메이션 믹서 설정
+                    if (fbx.animations && fbx.animations.length > 0) {
+                        this.mixer = new THREE.AnimationMixer(fbx);
+                        this.currentAnimation = this.mixer.clipAction(fbx.animations[0]);
+                        this.currentAnimation.play();
+                    }
+                    
+                    console.log(`FBX 모델 로드 성공 (${this.type}):`, fbxPath);
+                    resolve(fbx);
+                },
+                (progress) => {
+                    console.log('로딩 진행률:', (progress.loaded / progress.total * 100) + '%');
+                },
+                (error) => {
+                    console.error('FBX 로드 실패:', error);
+                    reject(error);
+                }
+            );
+        });
+    }
+    
+    createFallbackModel(group) {
+        // 폴백: 기본 기하학적 모델 생성
+        const bodyGeometry = new THREE.CylinderGeometry(0.8, 0.8, 3, 8);
         const bodyMaterial = new THREE.MeshPhysicalMaterial({
             color: this.stats.color,
             metalness: 0.7,
@@ -92,41 +152,78 @@ class Enemy {
         });
         
         const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-        body.position.y = this.stats.scale * 1.5; // 바닥에서 적당한 높이
+        body.position.y = 1.5;
         body.castShadow = true;
         body.receiveShadow = true;
         group.add(body);
         
-        // 헤드 (적당한 크기)
-        const headGeometry = new THREE.SphereGeometry(this.stats.scale * 0.5, 8, 8);
-        const headMaterial = new THREE.MeshPhysicalMaterial({
-            color: this.stats.color,
-            metalness: 0.5,
-            roughness: 0.5,
-            emissive: this.stats.emissive,
-            emissiveIntensity: 0.2
-        });
-        
-        const head = new THREE.Mesh(headGeometry, headMaterial);
-        head.position.y = this.stats.scale * 3.5; // 몸체 위에
+        // 헤드
+        const headGeometry = new THREE.SphereGeometry(0.5, 8, 8);
+        const head = new THREE.Mesh(headGeometry, bodyMaterial);
+        head.position.y = 3.5;
         head.castShadow = true;
         group.add(head);
         
-        // 눈 (사이버펑크 스타일) - 적당한 크기와 위치
-        const eyeGeometry = new THREE.SphereGeometry(0.08, 4, 4);
-        const eyeMaterial = new THREE.MeshPhongMaterial({ 
-            color: 0x00ffff,
-            emissive: 0x00ffff,
-            emissiveIntensity: 1
-        });
+        console.log('폴백 모델 생성됨');
+    }
+    
+    updateModelCenter() {
+        if (this.mesh && this.fbxModel) {
+            // FBX 모델의 실제 중심 위치 계산
+            this.modelCenter.copy(this.mesh.position);
+            
+            // FBX 모델의 높이 중간 지점으로 조정 (고정된 높이)
+            this.modelCenter.y += 1.5; // 모델 중심 높이로 조정 (스케일과 독립적)
+        } else {
+            // 폴백: 물리 바디 위치 사용
+            this.modelCenter.copy(this.position);
+        }
+    }
+    
+    async createModel() {
+        const group = new THREE.Group();
         
-        const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
-        leftEye.position.set(-0.2, 3.5, 0.4);
-        group.add(leftEye);
-        
-        const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
-        rightEye.position.set(0.2, 3.5, 0.4);
-        group.add(rightEye);
+        try {
+            // FBX 모델 로드
+            await this.loadFBXModel();
+            
+            if (this.fbxModel) {
+                // 스케일 조정
+                this.fbxModel.scale.setScalar(this.stats.scale);
+                
+                // 위치 조정 (바닥에 맞춤)
+                this.fbxModel.position.y = 0;
+                
+                // 그림자 설정
+                this.fbxModel.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                        
+                        // 타입별 색상 적용
+                        if (child.material) {
+                            if (Array.isArray(child.material)) {
+                                child.material.forEach(mat => {
+                                    mat.color = new THREE.Color(this.stats.color);
+                                    mat.emissive = new THREE.Color(this.stats.emissive);
+                                    mat.emissiveIntensity = 0.3;
+                                });
+                            } else {
+                                child.material.color = new THREE.Color(this.stats.color);
+                                child.material.emissive = new THREE.Color(this.stats.emissive);
+                                child.material.emissiveIntensity = 0.3;
+                            }
+                        }
+                    }
+                });
+                
+                group.add(this.fbxModel);
+            }
+        } catch (error) {
+            console.error('FBX 모델 로드 실패:', error);
+            // 폴백: 기본 기하학적 모델 생성
+            this.createFallbackModel(group);
+        }
         
         // 타입 표시기
         this.createTypeIndicator(group);
@@ -140,8 +237,8 @@ class Enemy {
     createTypeIndicator(parent) {
         const canvas = document.createElement('canvas');
         const context = canvas.getContext('2d');
-        canvas.width = 128;
-        canvas.height = 32;
+        canvas.width = 256; // 더 큰 캔버스
+        canvas.height = 64;
         
         // 배경
         context.fillStyle = 'rgba(0, 0, 0, 0.8)';
@@ -149,23 +246,23 @@ class Enemy {
         
         // 텍스트
         context.fillStyle = '#00ffff';
-        context.font = 'bold 16px Arial';
+        context.font = 'bold 32px Arial'; // 더 큰 폰트
         context.textAlign = 'center';
-        context.fillText(this.type.toUpperCase(), canvas.width / 2, 20);
+        context.fillText(this.type.toUpperCase(), canvas.width / 2, 40);
         
         const texture = new THREE.CanvasTexture(canvas);
         const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
         const sprite = new THREE.Sprite(spriteMaterial);
         
-        sprite.position.y = this.stats.scale * 4.5;
-        sprite.scale.set(2, 0.5, 1);
+        sprite.position.y = 5.5; // 적 머리 훨씬 위로 이동
+        sprite.scale.set(4, 1, 1); // 더 크게
         
         parent.add(sprite);
         this.typeIndicator = sprite;
     }
     
     createHealthBar(parent) {
-        const barGeometry = new THREE.PlaneGeometry(1.5, 0.15);
+        const barGeometry = new THREE.PlaneGeometry(3.0, 0.3); // 더 크게
         const barMaterial = new THREE.MeshPhongMaterial({
             color: 0x00ff00,
             transparent: true,
@@ -173,14 +270,14 @@ class Enemy {
         });
         
         const healthBar = new THREE.Mesh(barGeometry, barMaterial);
-        healthBar.position.y = this.stats.scale * 4.2;
+        healthBar.position.y = 4.8; // 적 머리 위로 이동 (타입 표시기 아래)
         
         // 항상 카메라를 향하도록
         const backgroundBar = new THREE.Mesh(
-            new THREE.PlaneGeometry(1.5, 0.15),
+            new THREE.PlaneGeometry(3.0, 0.3), // 더 크게
             new THREE.MeshPhongMaterial({ color: 0x333333, transparent: true, opacity: 0.5 })
         );
-        backgroundBar.position.y = this.stats.scale * 4.2;
+        backgroundBar.position.y = 4.8; // 적 머리 위로 이동 (타입 표시기 아래)
         backgroundBar.position.z = -0.01;
         
         parent.add(backgroundBar);
@@ -190,16 +287,15 @@ class Enemy {
     }
     
     createPhysicsBody() {
-        const shape = new CANNON.Cylinder(
-            this.stats.scale * 0.8,
-            this.stats.scale * 0.8,
-            this.stats.scale * 3,
-            8
-        );
+        // FBX 모델에 맞게 물리 바디 크기 조정
+        const radius = 30 * this.stats.scale; // FBX 스케일에 맞춤
+        const height = 60 * this.stats.scale;
+        
+        const shape = new CANNON.Cylinder(radius, radius, height, 8);
         
         this.body = new CANNON.Body({ mass: 50 });
         this.body.addShape(shape);
-        this.body.position.set(this.position.x, this.position.y, this.position.z);
+        this.body.position.set(this.position.x, this.position.y + height/2, this.position.z);
         this.body.material = new CANNON.Material({ friction: 0.3, restitution: 0.1 });
         
         // 회전 제한 (넘어지지 않게)
@@ -209,6 +305,10 @@ class Enemy {
     
     setTarget(target) {
         this.target = target;
+    }
+    
+    setCamera(camera) {
+        this.camera = camera;
     }
     
     updateAI(deltaTime) {
@@ -388,10 +488,11 @@ class Enemy {
     
     updateHealthBarRotation() {
         // 체력바가 항상 카메라를 향하도록 (빌보드 효과)
-        if (this.healthBar && this.healthBarBackground) {
-            // 실제 게임에서는 카메라 참조가 필요하지만, 여기서는 Y축 회전만 고려
-            this.healthBar.lookAt(this.position.x, this.position.y + 5, this.position.z + 10);
-            this.healthBarBackground.lookAt(this.position.x, this.position.y + 5, this.position.z + 10);
+        if (this.healthBar && this.healthBarBackground && this.typeIndicator && this.camera) {
+            // 카메라 위치를 향하도록 설정
+            this.healthBar.lookAt(this.camera.position);
+            this.healthBarBackground.lookAt(this.camera.position);
+            this.typeIndicator.lookAt(this.camera.position);
         }
     }
     
@@ -416,12 +517,22 @@ class Enemy {
     update(deltaTime) {
         if (!this.body) return;
         
+        // 애니메이션 믹서 업데이트
+        if (this.mixer) {
+            this.mixer.update(deltaTime / 1000); // deltaTime을 초 단위로 변환
+        }
+        
         // 물리 바디와 위치 동기화
         this.position.copy(this.body.position);
         
         if (this.mesh) {
             this.mesh.position.copy(this.position);
+            // FBX 모델의 위치를 바닥에 맞춤
+            this.mesh.position.y = this.position.y - (30 * this.stats.scale);
         }
+        
+        // 모델 중심 위치 업데이트
+        this.updateModelCenter();
         
         // AI 업데이트
         if (this.isAlive) {
@@ -430,9 +541,9 @@ class Enemy {
         
         // 떨어지는 것 방지
         if (this.position.y < -10) {
-            this.position.y = 0;
+            this.position.y = 30 * this.stats.scale; // FBX 모델 높이에 맞춤
             if (this.body) {
-                this.body.position.y = 0;
+                this.body.position.y = 30 * this.stats.scale;
             }
         }
     }
@@ -440,23 +551,46 @@ class Enemy {
     intersectsProjectile(projectile) {
         if (!this.isAlive || !this.mesh || !projectile.mesh) return false;
         
-        const distance = this.position.distanceTo(projectile.position);
-        const hitRadius = this.stats.scale * 4; // 히트박스 크게 증가
+        // FBX 모델의 실제 중심 위치 사용
+        this.updateModelCenter();
+        
+        // 3D 거리 계산
+        const distance = this.modelCenter.distanceTo(projectile.position);
+        
+        // 수평 거리도 별도로 계산 (Y축 차이가 클 때를 위해)
+        const horizontalDistance = Math.sqrt(
+            Math.pow(this.modelCenter.x - projectile.position.x, 2) + 
+            Math.pow(this.modelCenter.z - projectile.position.z, 2)
+        );
+        
+        // Y축 차이
+        const verticalDifference = Math.abs(this.modelCenter.y - projectile.position.y);
+        
+        // 히트박스: 수평 거리와 수직 차이를 별도로 체크
+        const hitRadiusHorizontal = 4.0; // 수평 히트박스 (4미터)
+        const hitRadiusVertical = 3.0;   // 수직 히트박스 (3미터)
+        
+        const hit = (horizontalDistance <= hitRadiusHorizontal) && (verticalDifference <= hitRadiusVertical);
         
         // 디버그 로그 (가끔씩)
         if (Math.random() < 0.01) {
-            console.log(`🎯 충돌 체크: 적 ${this.type}, 거리: ${distance.toFixed(2)}, 히트반지름: ${hitRadius.toFixed(2)}, 적위치: (${this.position.x.toFixed(1)}, ${this.position.y.toFixed(1)}, ${this.position.z.toFixed(1)}), 발사체위치: (${projectile.position.x.toFixed(1)}, ${projectile.position.y.toFixed(1)}, ${projectile.position.z.toFixed(1)})`);
+            console.log(`🎯 충돌 체크: 적 ${this.type}, 3D거리: ${distance.toFixed(2)}, 수평거리: ${horizontalDistance.toFixed(2)}, 수직차이: ${verticalDifference.toFixed(2)}, 히트: ${hit}, 모델중심: (${this.modelCenter.x.toFixed(1)}, ${this.modelCenter.y.toFixed(1)}, ${this.modelCenter.z.toFixed(1)}), 발사체위치: (${projectile.position.x.toFixed(1)}, ${projectile.position.y.toFixed(1)}, ${projectile.position.z.toFixed(1)})`);
         }
         
-        const hit = distance <= hitRadius;
         if (hit) {
-            console.log(`💥 적 ${this.type} 명중! 거리: ${distance.toFixed(2)}, 히트반지름: ${hitRadius.toFixed(2)}`);
+            console.log(`💥 적 ${this.type} 명중! 수평거리: ${horizontalDistance.toFixed(2)}, 수직차이: ${verticalDifference.toFixed(2)}`);
         }
         
         return hit;
     }
     
     dispose() {
+        // 애니메이션 믹서 정리
+        if (this.mixer) {
+            this.mixer.stopAllAction();
+            this.mixer = null;
+        }
+        
         if (this.mesh) {
             this.mesh.traverse((child) => {
                 if (child.geometry) child.geometry.dispose();
@@ -468,6 +602,11 @@ class Enemy {
                     }
                 }
             });
+        }
+        
+        // FBX 모델 정리
+        if (this.fbxModel) {
+            this.fbxModel = null;
         }
     }
 }

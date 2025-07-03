@@ -108,6 +108,33 @@
 - ✅ **건물 색상**: 더 밝은 색상으로 변경
 - ✅ **포인트 라이트**: 강도 및 범위 증가
 
+### Phase 6: FBX 모델 시스템 구현 ✅
+**완료 날짜**: 2025-07-03
+
+#### 주요 성과
+- 리깅된 3D 캐릭터 모델 시스템 구현
+- 타입별 애니메이션 시스템 구축
+- 정확한 히트박스 및 충돌 감지 시스템
+- 빌보드 UI 시스템으로 사용성 향상
+
+#### 구현된 기능
+- ✅ **FBXLoader 통합**: Three.js FBXLoader를 이용한 3D 모델 로딩
+- ✅ **애니메이션 시스템**: AnimationMixer를 통한 실시간 애니메이션 재생
+- ✅ **타입별 애니메이션**: 
+  - 기본형: 걷기 애니메이션
+  - 빠른형: 뛰기 애니메이션  
+  - 중장갑형: 춤추기 애니메이션
+- ✅ **정밀 히트박스**: 수평/수직 분리 충돌 감지 시스템
+- ✅ **빌보드 UI**: 카메라를 향하는 체력바 및 타입 표시기
+- ✅ **모델 중심 추적**: 정확한 충돌 감지를 위한 실시간 위치 계산
+
+#### 기술적 개선사항
+- **FBX 파일 구조**: biped/ 폴더에 체계적으로 관리
+- **비동기 로딩**: Promise 기반 FBX 모델 로딩 시스템
+- **폴백 시스템**: FBX 로딩 실패 시 기본 기하학적 모델 대체
+- **메모리 관리**: 애니메이션 믹서 및 FBX 모델 적절한 dispose
+- **성능 최적화**: 실시간 애니메이션과 UI 업데이트 최적화
+
 ## 🛠️ 기술적 해결사항
 
 ### WebGL 최적화
@@ -134,6 +161,44 @@ if (isNearGround || this.canJump) {
 if (this.score >= this.stageTargetScore && !this.stageCompleting) {
     this.stageCompleting = true;
     this.completeStage();
+}
+```
+
+### FBX 모델 시스템
+```javascript
+// FBX 모델 로딩 및 애니메이션 시스템
+async loadFBXModel() {
+    const loader = new FBXLoader();
+    return new Promise((resolve, reject) => {
+        loader.load(fbxPath, (fbx) => {
+            this.fbxModel = fbx;
+            if (fbx.animations && fbx.animations.length > 0) {
+                this.mixer = new THREE.AnimationMixer(fbx);
+                this.currentAnimation = this.mixer.clipAction(fbx.animations[0]);
+                this.currentAnimation.play();
+            }
+            resolve(fbx);
+        });
+    });
+}
+
+// 정밀 히트박스 시스템
+intersectsProjectile(projectile) {
+    const horizontalDistance = Math.sqrt(
+        Math.pow(this.modelCenter.x - projectile.position.x, 2) + 
+        Math.pow(this.modelCenter.z - projectile.position.z, 2)
+    );
+    const verticalDifference = Math.abs(this.modelCenter.y - projectile.position.y);
+    
+    return (horizontalDistance <= 4.0) && (verticalDifference <= 3.0);
+}
+
+// 빌보드 UI 시스템
+updateHealthBarRotation() {
+    if (this.healthBar && this.camera) {
+        this.healthBar.lookAt(this.camera.position);
+        this.typeIndicator.lookAt(this.camera.position);
+    }
 }
 ```
 
@@ -174,10 +239,12 @@ if (this.score >= this.stageTargetScore && !this.stageCompleting) {
 - ✅ 3D 렌더링 및 물리 시뮬레이션
 - ✅ FPS 조작 시스템
 - ✅ 무기 및 전투 시스템
-- ✅ AI 적 시스템
+- ✅ AI 적 시스템 (FBX 모델 기반)
 - ✅ UI 및 HUD 시스템
 - ✅ 스테이지 진행 시스템
 - ✅ 점수 및 랭킹 시스템
+- ✅ FBX 모델 및 애니메이션 시스템
+- ✅ 빌보드 UI 시스템
 
 ### 최적화 완료 영역
 - ✅ GPU 사용량 최적화
@@ -188,14 +255,14 @@ if (this.score >= this.stageTargetScore && !this.stageCompleting) {
 
 ## 🚧 향후 개발 계획
 
-### Phase 6: 콘텐츠 확장 (예정)
+### Phase 7: 콘텐츠 확장 (예정)
 - [ ] 사운드 시스템 추가
 - [ ] 파티클 이펙트 시스템
 - [ ] 더 많은 무기 종류
 - [ ] 다양한 맵 환경
-- [ ] 더 많은 적 타입
+- [ ] 더 많은 적 타입 및 애니메이션
 
-### Phase 7: 고급 기능 (예정)
+### Phase 8: 고급 기능 (예정)
 - [ ] 레벨 에디터
 - [ ] 설정 메뉴 시스템
 - [ ] 키 바인딩 커스터마이징
@@ -251,6 +318,6 @@ if (this.score >= this.stageTargetScore && !this.stageCompleting) {
 
 ---
 
-**최종 업데이트**: 2025년 1월 2일  
-**개발 상태**: 기본 기능 완성, 최적화 완료  
-**다음 목표**: 콘텐츠 확장 및 고급 기능 추가
+**최종 업데이트**: 2025년 7월 3일  
+**개발 상태**: FBX 모델 시스템 구현 완료, 애니메이션 시스템 추가  
+**다음 목표**: 사운드 시스템 및 파티클 이펙트 추가
